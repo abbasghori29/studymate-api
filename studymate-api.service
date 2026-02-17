@@ -1,0 +1,23 @@
+[Unit]
+Description=StudyMate API - FastAPI Application
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/home/ec2-user/studymate-api
+Environment="PATH=/home/ec2-user/studymate-api/venv/bin"
+ExecStart=/home/ec2-user/studymate-api/venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8005 --workers 1
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+
