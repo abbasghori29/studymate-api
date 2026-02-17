@@ -37,23 +37,86 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H ${{ secrets.LIGHTSAIL_HOST }} >> ~/.ssh/known_hosts 2>/dev/null
 
+      - name: Create .env file
+        run: |
+          cat > /tmp/app.env << 'STATIC_PART'
+          PROJECT_NAME=StudyMate API
+          VERSION=0.1.0
+          DEBUG=False
+          HOST=0.0.0.0
+          PORT=8005
+          DATABASE_URL=sqlite:///./app.db
+          DB_ECHO=False
+          ALGORITHM=HS256
+          ACCESS_TOKEN_EXPIRE_MINUTES=30
+          LOG_LEVEL=INFO
+          LOG_FORMAT=json
+          VECTOR_STORE_PATH=faiss_index_openai
+          PINECONE_INDEX_NAME=cafs-chatbot-memory
+          PINECONE_CLOUD=aws
+          PINECONE_REGION=us-east-1
+          STATIC_PART
+          sed -i 's/^          //' /tmp/app.env
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> /tmp/app.env
+          echo "OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}" >> /tmp/app.env
+          echo "PINECONE_API_KEY=${{ secrets.PINECONE_API_KEY }}" >> /tmp/app.env
+
+      - name: Create Nginx config
+        run: |
+          cat > /tmp/nginx.conf << 'NGINX_CONF'
+          server {
+              listen 80;
+              server_name _;
+              return 301 https://$host$request_uri;
+          }
+          server {
+              listen 443 ssl http2;
+              server_name _;
+              ssl_certificate /etc/nginx/ssl/studymate-api.crt;
+              ssl_certificate_key /etc/nginx/ssl/studymate-api.key;
+              ssl_protocols TLSv1.2 TLSv1.3;
+              ssl_ciphers HIGH:!aNULL:!MD5;
+              ssl_prefer_server_ciphers on;
+              ssl_session_cache shared:SSL:10m;
+              ssl_session_timeout 10m;
+              add_header Strict-Transport-Security "max-age=31536000" always;
+              add_header X-Frame-Options "SAMEORIGIN" always;
+              add_header X-Content-Type-Options "nosniff" always;
+              client_max_body_size 10M;
+              location / {
+                  proxy_pass http://127.0.0.1:8005;
+                  proxy_http_version 1.1;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header X-Forwarded-Host $host;
+                  proxy_set_header X-Forwarded-Port $server_port;
+                  proxy_connect_timeout 60s;
+                  proxy_send_timeout 60s;
+                  proxy_read_timeout 60s;
+              }
+          }
+          NGINX_CONF
+          sed -i 's/^          //' /tmp/nginx.conf
+
+      - name: Upload configs to server
+        run: |
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/app.env /tmp/nginx.conf \
+            ec2-user@${{ secrets.LIGHTSAIL_HOST }}:/tmp/
+
       - name: Deploy to Lightsail
         env:
           HOST: ${{ secrets.LIGHTSAIL_HOST }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
-          SECRET_KEY: ${{ secrets.SECRET_KEY }}
           REPO_URL: ${{ github.event.repository.clone_url }}
         run: |
-          echo "🔗 Connecting to ec2-user@$HOST..."
-
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -o ConnectTimeout=30 \
             ec2-user@$HOST \
             "export APP_DIR='/home/ec2-user/studymate-api' && \
              export REPO_URL='$REPO_URL' && \
-             export OPENAI_KEY='$OPENAI_API_KEY' && \
-             export PINECONE_KEY='$PINECONE_API_KEY' && \
-             export APP_SECRET_KEY='$SECRET_KEY' && \
              bash" << 'DEPLOY_SCRIPT'
           set -e
 
@@ -61,13 +124,11 @@ jobs:
 
           # ── 1. Install system prerequisites (Amazon Linux 2023) ──
           echo "📦 Installing system prerequisites..."
-
           if command -v dnf &> /dev/null; then
             PKG_MGR="dnf"
           else
             PKG_MGR="yum"
           fi
-
           sudo $PKG_MGR update -y
           sudo $PKG_MGR install -y git python3.11 python3.11-pip python3.11-devel \
             gcc gcc-c++ make cmake nginx openssl
@@ -110,36 +171,11 @@ jobs:
             git reset --hard origin/main
           fi
 
-          # ── 5. Create/update .env file from secrets ──
-          echo "📝 Creating .env file..."
+          # ── 5. Move .env file from upload ──
+          echo "📝 Setting up .env file..."
           SERVER_IP=$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo 'localhost')
-          cat > .env << EOF
-PROJECT_NAME=StudyMate API
-VERSION=0.1.0
-DEBUG=False
-HOST=0.0.0.0
-PORT=8005
-
-DATABASE_URL=sqlite:///./app.db
-DB_ECHO=False
-
-SECRET_KEY=$APP_SECRET_KEY
-ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-
-BACKEND_CORS_ORIGINS=["https://$SERVER_IP","http://$SERVER_IP:8005","http://localhost:3000","http://localhost:8005"]
-
-LOG_LEVEL=INFO
-LOG_FORMAT=json
-
-OPENAI_API_KEY=$OPENAI_KEY
-VECTOR_STORE_PATH=faiss_index_openai
-
-PINECONE_API_KEY=$PINECONE_KEY
-PINECONE_INDEX_NAME=cafs-chatbot-memory
-PINECONE_CLOUD=aws
-PINECONE_REGION=us-east-1
-EOF
+          cp /tmp/app.env .env
+          echo "BACKEND_CORS_ORIGINS=[\"https://$SERVER_IP\",\"http://$SERVER_IP:8005\",\"http://localhost:3000\",\"http://localhost:8005\"]" >> .env
           chmod 600 .env
           echo "✅ .env file created"
 
@@ -149,7 +185,6 @@ EOF
             $PYTHON_CMD -m venv venv
           fi
           source venv/bin/activate
-
           echo "📥 Installing dependencies..."
           pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt
@@ -171,7 +206,6 @@ EOF
 
           # ── 9. Setup Nginx reverse proxy with SSL ──
           echo "🔒 Configuring Nginx with SSL..."
-
           sudo mkdir -p /etc/nginx/ssl
           if [ ! -f /etc/nginx/ssl/studymate-api.crt ]; then
             echo "🔐 Generating self-signed SSL certificate..."
@@ -186,52 +220,8 @@ EOF
             echo "✅ SSL certificate already exists"
           fi
 
-          # Remove default nginx config if it conflicts
           sudo rm -f /etc/nginx/conf.d/default.conf 2>/dev/null || true
-
-          sudo tee /etc/nginx/conf.d/studymate-api.conf > /dev/null << 'NGINX_EOF'
-server {
-    listen 80;
-    server_name _;
-    return 301 https://$host$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name _;
-
-    ssl_certificate /etc/nginx/ssl/studymate-api.crt;
-    ssl_certificate_key /etc/nginx/ssl/studymate-api.key;
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 10m;
-
-    add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header X-Content-Type-Options "nosniff" always;
-
-    client_max_body_size 10M;
-
-    location / {
-        proxy_pass http://127.0.0.1:8005;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host $host;
-        proxy_set_header X-Forwarded-Port $server_port;
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
-    }
-}
-NGINX_EOF
-
+          sudo cp /tmp/nginx.conf /etc/nginx/conf.d/studymate-api.conf
           sudo nginx -t || echo "⚠️  Nginx config test failed"
           sudo systemctl enable nginx
           sudo systemctl restart nginx || echo "⚠️  Nginx restart failed"
@@ -246,24 +236,23 @@ NGINX_EOF
           sudo systemctl daemon-reload
           sudo systemctl restart studymate-api
 
-          # ── 12. Deployment summary ──
+          # ── 12. Cleanup temp files ──
+          rm -f /tmp/app.env /tmp/nginx.conf
+
+          # ── 13. Deployment summary ──
           echo ""
           echo "════════════════════════════════════════════════════"
           echo "✅ DEPLOYMENT COMPLETED — studymate-api"
           echo "════════════════════════════════════════════════════"
           echo ""
-
           echo "📊 Service status:"
           sudo systemctl status studymate-api --no-pager -l || echo "⚠️  Status unavailable"
-
           echo ""
           echo "📋 Recent logs:"
           sudo journalctl -u studymate-api -n 20 --no-pager || true
-
           echo ""
           echo "🔍 Port check:"
           sudo ss -tulpn | grep -E '8005|443|80' || echo "⚠️  Ports not listening yet"
-
           echo ""
           echo "🔑 .env check:"
           if grep -q "OPENAI_API_KEY=" .env && ! grep -q "OPENAI_API_KEY=$" .env; then
@@ -276,7 +265,6 @@ NGINX_EOF
           else
             echo "  ❌ PINECONE_API_KEY missing"
           fi
-
           echo ""
           echo "🌐 Application URLs:"
           echo "   HTTPS: https://$SERVER_IP"
@@ -284,9 +272,7 @@ NGINX_EOF
           echo ""
           echo "⚠️  IMPORTANT: Open these ports in Lightsail Networking tab:"
           echo "   → IPv4 Firewall: Add HTTPS (443) and HTTP (80)"
-          echo "   → The default SSH (22) should already be open"
           echo ""
-          echo "📝 HTTPS uses a self-signed cert. Click 'Advanced' → 'Proceed' in browser."
           DEPLOY_SCRIPT
 
       - name: Health Check
