@@ -263,8 +263,9 @@ jobs:
 
           sudo systemctl enable nginx
 
-          # Setup auto-renewal cron
-          (sudo crontab -l 2>/dev/null | grep -v certbot; echo "0 3 * * * certbot renew --quiet --post-hook 'systemctl restart nginx'") | sudo crontab -
+          # Certbot auto-renewal (systemd timer is set up by certbot automatically)
+          sudo systemctl enable certbot-renew.timer 2>/dev/null || true
+          sudo systemctl start certbot-renew.timer 2>/dev/null || true
 
           # ── 10. Stop old lms-bot service if it exists ──
           sudo systemctl stop lms-bot 2>/dev/null || true
