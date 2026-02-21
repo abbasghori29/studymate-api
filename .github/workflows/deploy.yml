@@ -233,7 +233,7 @@ jobs:
           sudo $PKG_MGR install -y certbot python3-certbot-nginx 2>/dev/null || \
             sudo pip3 install certbot certbot-nginx 2>/dev/null || true
 
-          if [ -f /etc/letsencrypt/live/growize.co/fullchain.pem ]; then
+          if sudo test -f /etc/letsencrypt/live/growize.co/fullchain.pem; then
             echo "✅ Let's Encrypt certificate already exists"
             sudo cp /tmp/nginx-ssl.conf /etc/nginx/conf.d/studymate-api.conf
             sudo nginx -t && sudo systemctl restart nginx
@@ -254,7 +254,7 @@ jobs:
                 --email admin@growize.co \
                 --no-eff-email || echo "❌ Let's Encrypt failed. Check DNS and firewall."
             }
-            if [ -f /etc/letsencrypt/live/growize.co/fullchain.pem ]; then
+            if sudo test -f /etc/letsencrypt/live/growize.co/fullchain.pem; then
               sudo cp /tmp/nginx-ssl.conf /etc/nginx/conf.d/studymate-api.conf
               sudo nginx -t && sudo systemctl restart nginx
               echo "✅ Let's Encrypt certificate installed!"
@@ -308,7 +308,7 @@ jobs:
           fi
           echo ""
           echo "🔒 SSL check:"
-          if [ -f /etc/letsencrypt/live/growize.co/fullchain.pem ]; then
+          if sudo test -f /etc/letsencrypt/live/growize.co/fullchain.pem; then
             echo "  ✅ Let's Encrypt certificate active"
             sudo openssl x509 -in /etc/letsencrypt/live/growize.co/fullchain.pem -noout -dates 2>/dev/null || true
           else
