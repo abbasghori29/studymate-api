@@ -11,160 +11,41 @@
         body {
             margin: 0;
             padding: 0;
+            height: 100%;
+            width: 100%;
             overflow: hidden !important;
-            /* Always hidden within the iframe */
             background: transparent !important;
         }
 
-        /* Embed Widget Styles */
+        /* Embed Widget Styles - always open, no toggle */
         #cafs-chatbot-widget {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            /* Flex layout to manage the button and chat window */
             display: flex;
             flex-direction: column;
-            align-items: flex-end;
-            justify-content: flex-end;
+            align-items: stretch;
+            justify-content: stretch;
             height: 100%;
             width: 100%;
-            pointer-events: none;
-            /* Let clicks pass through empty areas */
-            padding-right: 28px;
-            padding-bottom: 24px;
             box-sizing: border-box;
         }
 
-        /* Ensure NO ::before pseudo-element on desktop */
+        /* Ensure NO ::before pseudo-element */
         #cafs-chatbot-widget::before {
             display: none !important;
             content: none !important;
         }
 
-        /* Toggle Button */
-        #cafs-chatbot-toggle {
-            width: 64px;
-            height: 64px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #fc5304 0%, #fc7c54 100%);
-            border: none;
-            cursor: pointer;
-            box-shadow: 0 6px 25px rgba(252, 83, 4, 0.45);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-            pointer-events: auto;
-            /* Re-enable clicks */
-            z-index: 20;
-        }
-
-        /* Hover/Active effects - Desktop Only */
-        @media (hover: hover) {
-            #cafs-chatbot-toggle:hover {
-                transform: scale(1.08);
-                box-shadow: 0 8px 30px rgba(252, 83, 4, 0.55);
-            }
-
-            #cafs-chatbot-toggle:active {
-                transform: scale(0.95);
-            }
-        }
-
-        #cafs-chatbot-toggle::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(255, 255, 255, 0.2) 0%, transparent 50%);
-            border-radius: 50%;
-        }
-
-        .toggle-icon {
-            width: 28px;
-            height: 28px;
-            transition: all 0.3s ease;
-        }
-
-        .toggle-icon.chat {
-            fill: white;
-        }
-
-        .toggle-icon.close {
-            stroke: white;
-            fill: none;
-            stroke-width: 2.5;
-        }
-
-        #cafs-chatbot-toggle.open .toggle-icon.chat {
-            display: none;
-        }
-
-        #cafs-chatbot-toggle:not(.open) .toggle-icon.close {
-            display: none;
-        }
-
-        /* Notification Badge */
-        .notification-badge {
-            position: absolute;
-            top: -4px;
-            right: -4px;
-            width: 22px;
-            height: 22px;
-            background: #ef4444;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            font-weight: 600;
-            color: white;
-            border: 3px solid white;
-            animation: badgePop 0.3s ease;
-        }
-
-        @keyframes badgePop {
-            0% {
-                transform: scale(0);
-            }
-
-            70% {
-                transform: scale(1.2);
-            }
-
-            100% {
-                transform: scale(1);
-            }
-        }
-
-        /* Iframe Container - appears above toggle button */
+        /* Iframe Container - always visible, fills the widget */
         #cafs-chatbot-frame-container {
-            position: absolute;
-            bottom: 100px;
-            right: 28px;
-            width: 380px;
-            height: 580px;
-            /* Default height */
-            max-height: calc(100vh - 140px);
+            width: 100%;
+            height: 100%;
             border-radius: 20px;
             overflow: hidden;
-            /* Removed shadow - was causing visual artifact */
             box-shadow: none;
-            opacity: 0;
-            transform: translateY(20px) scale(0.95);
-            transform-origin: bottom right;
-            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
-            pointer-events: none;
-            background: transparent;
-            z-index: 10;
-        }
-
-        #cafs-chatbot-frame-container.open {
             opacity: 1;
-            transform: translateY(0) scale(1);
+            transform: none;
             pointer-events: all;
+            background: transparent;
         }
 
         #cafs-chatbot-frame {
@@ -175,139 +56,28 @@
             background: transparent;
         }
 
-        /* Tooltip */
-        .toggle-tooltip {
-            position: absolute;
-            right: 76px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: #1a1a2e;
-            color: white;
-            padding: 10px 16px;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 500;
-            white-space: nowrap;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            opacity: 0;
-            transition: opacity 0.2s;
-            pointer-events: none;
-        }
-
-        .toggle-tooltip::after {
-            content: '';
-            position: absolute;
-            right: -6px;
-            top: 50%;
-            transform: translateY(-50%);
-            border: 6px solid transparent;
-            border-left-color: #1a1a2e;
-        }
-
-        #cafs-chatbot-toggle:hover .toggle-tooltip {
-            opacity: 1;
-        }
-
-        #cafs-chatbot-toggle.open .toggle-tooltip {
-            display: none;
-        }
-
         /* ================================
-           MOBILE DESIGN (Full overhaul)
+           MOBILE DESIGN
            ================================ */
         @media (max-width: 768px) {
             #cafs-chatbot-widget {
                 padding: 0;
-                /* On mobile, widget covers screen when open, small corner when closed */
             }
 
-            /* The Overlay Background (for blurred backdrop) */
-            #cafs-chatbot-widget::before {
-                content: '';
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: rgba(0, 0, 0, 0.4);
-                backdrop-filter: blur(4px);
-                -webkit-backdrop-filter: blur(4px);
-                pointer-events: none;
-                opacity: 0;
-                transition: opacity 0.3s ease;
-                z-index: 5;
-            }
-
-            #cafs-chatbot-widget.mobile-open::before {
-                opacity: 1;
-                pointer-events: all;
-                /* Catch clicks outside to close? Optionally */
-            }
-
-            /* Mobile Toggle Button Position */
-            #cafs-chatbot-toggle {
-                position: absolute;
-                bottom: 20px;
-                right: 20px;
-                /* When open, we might hide it or move it */
-            }
-
-            /* Mobile Chat Window - "Bottom Sheet" Style */
             #cafs-chatbot-frame-container {
-                position: fixed;
-                bottom: 0;
-                left: 0;
-                right: 0;
-                top: auto;
-                /* Reset top */
                 width: 100% !important;
-                height: 85vh !important;
-                /* Take up 85% of screen height */
+                height: 100% !important;
                 max-width: 100% !important;
                 max-height: 100% !important;
-
                 margin: 0;
                 padding: 0;
-
-                /* Border Radius for top corners only */
-                border-radius: 24px 24px 0 0 !important;
+                border-radius: 0 !important;
                 box-shadow: none !important;
-
-                transform: translateY(100%);
-                /* Start hidden below screen */
-                transform-origin: center bottom !important;
-                transition: transform 0.4s cubic-bezier(0.19, 1, 0.22, 1);
-                /* Apple-like ease */
-
-                z-index: 100;
-            }
-
-            #cafs-chatbot-frame-container.open {
-                transform: translateY(0) !important;
             }
 
             #cafs-chatbot-frame {
-                border-radius: 24px 24px 0 0 !important;
+                border-radius: 0 !important;
                 background: #0d0b12;
-                /* Match internal bg to prevent white flashes */
-            }
-
-            /* Hide toggle when open on mobile if desired, or keep it */
-            /* Current logic in script handles hiding, we can keep that or adjust CSS */
-        }
-
-        /* Smaller Mobile Adjustments */
-        @media (max-width: 480px) {
-            #cafs-chatbot-toggle {
-                bottom: 16px;
-                right: 16px;
-                width: 56px;
-                height: 56px;
-            }
-
-            #cafs-chatbot-frame-container {
-                height: 90vh !important;
-                /* Taller on very small screens */
             }
         }
     </style>
@@ -315,98 +85,29 @@
 
 <body>
     <div id="cafs-chatbot-widget">
-        <!-- Toggle Button -->
-        <button id="cafs-chatbot-toggle" onclick="toggleChatbot()">
-            <span class="toggle-tooltip">Chat with CAFS Assistant</span>
-            <svg class="toggle-icon chat" viewBox="0 0 24 24">
-                <path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z" />
-                <circle cx="8" cy="10" r="1.5" />
-                <circle cx="12" cy="10" r="1.5" />
-                <circle cx="16" cy="10" r="1.5" />
-            </svg>
-            <svg class="toggle-icon close" viewBox="0 0 24 24">
-                <path d="M18 6L6 18M6 6l12 12" />
-            </svg>
-        </button>
-
-        <!-- Iframe Container -->
+        <!-- Chatbot iframe - always open -->
         <div id="cafs-chatbot-frame-container">
             <iframe id="cafs-chatbot-frame" src="{{ widget_url }}" title="CAFS Chatbot" allow="microphone"></iframe>
         </div>
     </div>
 
     <script>
-        let isOpen = false;
-
-        function toggleChatbot() {
-            isOpen = !isOpen;
-            const toggle = document.getElementById('cafs-chatbot-toggle');
-            const container = document.getElementById('cafs-chatbot-frame-container');
-            const widget = document.getElementById('cafs-chatbot-widget');
-
-            toggle.classList.toggle('open', isOpen);
-            container.classList.toggle('open', isOpen);
-
-            // Toggle ID for backdrop effect logic
-            if (window.innerWidth <= 768) {
-                widget.classList.toggle('mobile-open', isOpen);
-            }
-
-            // Notify parent window (for embed.js to handle container resizing)
+        // Chatbot is always open - notify parent on load
+        window.addEventListener('DOMContentLoaded', function () {
             if (window.parent !== window) {
-                window.parent.postMessage({
-                    type: isOpen ? 'cafsChatOpen' : 'cafsChatClose'
-                }, '*');
+                window.parent.postMessage({ type: 'cafsChatOpen' }, '*');
             }
-
-            // On mobile, handle toggle visibility
-            if (window.innerWidth <= 768) {
-                if (isOpen) {
-                    toggle.style.opacity = '0';
-                    toggle.style.pointerEvents = 'none';
-                } else {
-                    toggle.style.opacity = '1';
-                    toggle.style.pointerEvents = 'auto';
-                }
-            }
-        }
+        });
 
         // Listen for close message from iframe (widget.html)
         window.addEventListener('message', function (event) {
             if (event.data && event.data.type === 'closeChatbot') {
-                isOpen = false;
-                const toggle = document.getElementById('cafs-chatbot-toggle');
-                const container = document.getElementById('cafs-chatbot-frame-container');
-                const widget = document.getElementById('cafs-chatbot-widget');
-
-                toggle.classList.remove('open');
-                container.classList.remove('open');
-
-                // Remove backdrop class
-                if (window.innerWidth <= 768) {
-                    widget.classList.remove('mobile-open');
-                }
-
-                // Notify parent window (for embed.js to handle container resizing)
+                // Hide the chatbot
+                document.getElementById('cafs-chatbot-frame-container').style.display = 'none';
+                // Notify parent window
                 if (window.parent !== window) {
                     window.parent.postMessage({ type: 'cafsChatClose' }, '*');
                 }
-
-                // Show toggle button again on mobile
-                if (window.innerWidth <= 768) {
-                    // Small delay to let the chat window start sliding down first
-                    setTimeout(() => {
-                        toggle.style.opacity = '1';
-                        toggle.style.pointerEvents = 'auto';
-                    }, 300);
-                }
-            }
-        });
-
-        // Close on Escape key
-        document.addEventListener('keydown', function (event) {
-            if (event.key === 'Escape' && isOpen) {
-                toggleChatbot();
             }
         });
     </script>

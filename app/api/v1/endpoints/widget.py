@@ -70,26 +70,23 @@ async def get_embed_script(request: Request):
     
     script = f"""
 (function() {{
-    // CAFS Chatbot Embed Script - Mobile-Optimized Version
+    // CAFS Chatbot Embed Script - Always Open Version (no toggle)
     if (document.getElementById('cafs-chatbot-container')) return;
     
     var isMobile = function() {{
         return window.innerWidth <= 768;
     }};
     
-    // Calculate responsive dimensions
+    // Calculate responsive dimensions - always full chat size
     function getResponsiveDimensions() {{
         var vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
         var vh = Math.max(document.documentElement.clientHeight || 0, window.innerHeight || 0);
         
         var width, height;
         
-        // Mobile: Full screen but container stays small until opened
         if (vw <= 768) {{
-            // Container needs to be larger to fit the shadow without clipping
-            // 60px button + ~30px shadow/glow = ~120px safe area
-            width = 150; 
-            height = 150;
+            width = vw;
+            height = vh;
         }} else if (vw <= 1024) {{
             width = 400;
             height = Math.min(680, vh - 60);
@@ -103,72 +100,34 @@ async def get_embed_script(request: Request):
     
     var dims = getResponsiveDimensions();
     
-    // Create container with proper margins from edges
+    // Create container
     var container = document.createElement('div');
     container.id = 'cafs-chatbot-container';
     
-    // Default style - positioned at bottom right corner to allow shadows to flow up/left
-    // pointer-events: none allows clicks to pass through the empty transparent parts of the container
-    container.style.cssText = 'position:fixed;bottom:0px;right:0px;z-index:999999;background:transparent;pointer-events:none;';
+    container.style.cssText = 'position:fixed;bottom:0px;right:0px;z-index:999999;background:transparent;border-radius:20px;overflow:hidden;';
     
     if (dims.isMobile) {{
-        // On mobile, container is small - iframe inside handles full screen when opened
-        container.style.width = dims.width + 'px';
-        container.style.height = dims.height + 'px';
+        container.style.width = '100%';
+        container.style.height = '100%';
     }} else {{
-        // Desktop positioning adjustments
         container.style.width = dims.width + 'px';
         container.style.height = dims.height + 'px';
-        // Check if we need to adjust for desktop margins if 0,0 positioning is used
-        // Actually for desktop we might want to keep it slightly offset if the shadow is huge
-        // But 0,0 is safest for shadows if everything is inside.
     }}
     
     var iframe = document.createElement('iframe');
     iframe.id = 'cafs-chatbot-iframe';
     iframe.src = '{embed_url}';
-    // pointer-events: auto re-enables clicks on the iframe itself (button/window)
-    iframe.style.cssText = 'width:100%;height:100%;border:none;background:transparent;pointer-events:auto;';
+    iframe.style.cssText = 'width:100%;height:100%;border:none;background:transparent;border-radius:20px;';
     iframe.allow = 'microphone';
     iframe.title = 'CAFS Chatbot';
     
     container.appendChild(iframe);
     document.body.appendChild(container);
     
-    // Store original body styles for restoration
-    var originalBodyStyles = null;
-    
-    // Listen for messages from iframe to handle mobile full screen
+    // Listen for close message to hide the container
     window.addEventListener('message', function(event) {{
-        if (event.data && event.data.type === 'cafsChatOpen') {{
-            if (isMobile()) {{
-                // Store original body styles
-                originalBodyStyles = {{
-                    overflow: document.body.style.overflow
-                }};
-                
-                // Prevent body scroll - just overflow hidden is usually enough and smoother than position:fixed
-                document.body.style.overflow = 'hidden';
-                
-                // Expand container to full screen
-                container.style.width = '100%';
-                container.style.height = '100%';
-                container.style.pointerEvents = 'auto'; // Enable clicks everywhere in the container (overlay)
-            }}
-        }}
         if (event.data && event.data.type === 'cafsChatClose') {{
-            if (isMobile()) {{
-                // Restore body scroll
-                if (originalBodyStyles) {{
-                    document.body.style.overflow = originalBodyStyles.overflow || '';
-                }}
-                
-                // Shrink container back to toggle size
-                var newDims = getResponsiveDimensions();
-                container.style.width = newDims.width + 'px';
-                container.style.height = newDims.height + 'px';
-                container.style.pointerEvents = 'none'; // Back to pass-through
-            }}
+            container.style.display = 'none';
         }}
     }});
     
@@ -179,13 +138,15 @@ async def get_embed_script(request: Request):
         resizeTimeout = setTimeout(function() {{
             var newDims = getResponsiveDimensions();
             var containerEl = document.getElementById('cafs-chatbot-container');
-            // Only resize if not currently open on mobile
-            // Use a flag check or check if we are in fullscreen mode (width is '100%')
-            var isCurrentlyFullScreen = containerEl.style.width === '100%' && isMobile();
             
-            if (containerEl && !isCurrentlyFullScreen) {{
-                containerEl.style.width = newDims.width + 'px';
-                containerEl.style.height = newDims.height + 'px';
+            if (containerEl) {{
+                if (newDims.isMobile) {{
+                    containerEl.style.width = '100%';
+                    containerEl.style.height = '100%';
+                }} else {{
+                    containerEl.style.width = newDims.width + 'px';
+                    containerEl.style.height = newDims.height + 'px';
+                }}
             }}
         }}, 150);
     }});
