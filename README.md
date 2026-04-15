@@ -88,7 +88,7 @@ VECTOR_STORE_PATH=faiss_index_openai
 
 # Pinecone (for conversation memory)
 PINECONE_API_KEY=your-pinecone-api-key-here
-PINECONE_INDEX_NAME=cafs-chatbot-memory
+PINECONE_INDEX_NAME=growize-chatbot-memory
 ```
 
 ## Running the Application

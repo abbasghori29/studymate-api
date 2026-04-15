@@ -70,8 +70,8 @@ async def get_embed_script(request: Request):
     
     script = f"""
 (function() {{
-    // CAFS Chatbot Embed Script - Always Open Version (no toggle)
-    if (document.getElementById('cafs-chatbot-container')) return;
+    // Growize Chatbot Embed Script - Always Open Version (no toggle)
+    if (document.getElementById('growize-chatbot-container')) return;
     
     var isMobile = function() {{
         return window.innerWidth <= 768;
@@ -102,7 +102,7 @@ async def get_embed_script(request: Request):
     
     // Create container
     var container = document.createElement('div');
-    container.id = 'cafs-chatbot-container';
+    container.id = 'growize-chatbot-container';
     
     container.style.cssText = 'position:fixed;bottom:0px;right:0px;z-index:999999;background:transparent;border-radius:20px;overflow:hidden;';
     
@@ -115,18 +115,18 @@ async def get_embed_script(request: Request):
     }}
     
     var iframe = document.createElement('iframe');
-    iframe.id = 'cafs-chatbot-iframe';
+    iframe.id = 'growize-chatbot-iframe';
     iframe.src = '{embed_url}';
     iframe.style.cssText = 'width:100%;height:100%;border:none;background:transparent;border-radius:20px;';
     iframe.allow = 'microphone';
-    iframe.title = 'CAFS Chatbot';
+    iframe.title = 'Growize Chatbot';
     
     container.appendChild(iframe);
     document.body.appendChild(container);
     
     // Listen for close message to hide the container
     window.addEventListener('message', function(event) {{
-        if (event.data && event.data.type === 'cafsChatClose') {{
+        if (event.data && event.data.type === 'growizeChatClose') {{
             container.style.display = 'none';
         }}
     }});
@@ -137,7 +137,7 @@ async def get_embed_script(request: Request):
         clearTimeout(resizeTimeout);
         resizeTimeout = setTimeout(function() {{
             var newDims = getResponsiveDimensions();
-            var containerEl = document.getElementById('cafs-chatbot-container');
+            var containerEl = document.getElementById('growize-chatbot-container');
             
             if (containerEl) {{
                 if (newDims.isMobile) {{

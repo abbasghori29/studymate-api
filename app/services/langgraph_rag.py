@@ -10,7 +10,7 @@ This service solves the follow-up question problem by:
 Based on LangGraph best practices for handling conversation history and follow-ups.
 """
 import os
-from typing import List, Optional, Dict, Any, Annotated, Sequence, TypedDict
+from typing import List, Optional, Dict, Any, Annotated, Sequence, TypedDict, AsyncGenerator
 from pathlib import Path
 
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -50,6 +50,8 @@ class ConversationState(TypedDict):
     response: str
     user_id: Optional[str]
     session_id: Optional[str]
+    k: int
+    use_memory: bool
 
 
 class LangGraphRAGService:
@@ -217,6 +219,10 @@ class LangGraphRAGService:
         # If no history, it's a new question
         if not messages or len(messages) < 2:
             return {"contextualized_query": original_query, "is_followup": False}
+
+        # Skip rewrite for standalone queries to save latency.
+        if not self._should_contextualize(original_query):
+            return {"contextualized_query": original_query, "is_followup": True}
         
         # Has history - this is a follow-up, always try to contextualize
         is_followup = True
@@ -258,7 +264,7 @@ Examples:
 Standalone question:""")
         ])
         
-        recent_messages = messages[-6:] if len(messages) > 6 else messages
+        recent_messages = messages[-4:] if len(messages) > 4 else messages
         
         try:
             chain = contextualize_prompt | self.fast_llm | StrOutputParser()
@@ -287,9 +293,10 @@ Standalone question:""")
         query = state["contextualized_query"]
         user_id = state.get("user_id")
         session_id = state.get("session_id")
+        k = max(1, min(20, int(state.get("k", 3))))
         
         # Always retrieve from vector store
-        docs = self.vector_store.similarity_search(query, k=5)
+        docs = self.vector_store.similarity_search(query, k=k)
         
         # LOGGING - Print retrieved documents for debugging
         print(f"🔍 RETRIEVAL DEBUG: Query='{query}' found {len(docs)} docs")
@@ -309,7 +316,7 @@ Standalone question:""")
         
         # Get memory context
         memory_context = ""
-        if self.memory:
+        if self.memory and state.get("use_memory", True):
             try:
                 memory_context = self.memory.get_memory_context(
                     query, 
@@ -411,7 +418,7 @@ Retrieved Context:
         chain = prompt | self.llm | StrOutputParser()
         
         # Use recent messages for chat history in prompt
-        recent_messages = messages[-10:] if len(messages) > 10 else messages
+        recent_messages = messages[-4:] if len(messages) > 4 else messages
         
         try:
             response = chain.invoke({
@@ -446,12 +453,183 @@ Retrieved Context:
         text = text.strip()
         
         return text
+
+    def _should_contextualize(self, question: str) -> bool:
+        """Decide whether query rewriting is needed for follow-up style prompts."""
+        q = question.strip().lower()
+        if len(q) <= 22:
+            return True
+
+        followup_phrases = (
+            "why",
+            "how",
+            "what about",
+            "explain",
+            "tell me more",
+            "elaborate",
+            "can you clarify",
+            "what do you mean",
+            "and",
+            "then",
+        )
+        return any(phrase in q for phrase in followup_phrases)
+
+    def _build_sources(self, docs: List[Document]) -> List[Dict[str, str]]:
+        """Build normalized source payload."""
+        sources = []
+        for doc in docs:
+            page_num = doc.metadata.get("page_number") or doc.metadata.get("page")
+            sources.append({
+                "source": doc.metadata.get("source", "Unknown"),
+                "page": str(page_num) if page_num else "N/A",
+                "content_preview": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+            })
+        return sources
+
+    async def stream_chat(
+        self,
+        question: str,
+        chat_history: Optional[List] = None,
+        k: int = 3,
+        use_memory: bool = True,
+        store_in_memory: bool = True,
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """Stream chat response token-by-token."""
+        messages = []
+        if chat_history:
+            for role, content in chat_history:
+                if role == "human":
+                    messages.append(HumanMessage(content=content))
+                elif role in ("ai", "assistant"):
+                    messages.append(AIMessage(content=content))
+
+        state: ConversationState = {
+            "messages": messages,
+            "original_query": question,
+            "contextualized_query": question,
+            "is_followup": False,
+            "retrieved_docs": [],
+            "rag_context": "",
+            "memory_context": "",
+            "response": "",
+            "user_id": user_id,
+            "session_id": session_id,
+            "k": k,
+            "use_memory": use_memory,
+        }
+
+        state.update(self._contextualize_query_node(state))
+        if not use_memory:
+            state["memory_context"] = ""
+        state.update(self._retrieve_node(state))
+
+        system_prompt = """You are a helpful educational assistant.
+Your role is to act like a teacher who helps students, other teachers, and sometimes parents.
+
+GREETING/CLOSING CHECK:
+- Greetings (hi, hello): Reply with a friendly greeting.
+- Closing phrases (thanks, bye): Reply with a friendly closing.
+
+FOR ALL QUESTIONS - INTELLIGENT RESPONSE STRATEGY:
+
+You have access to TWO sources of information:
+1. **Retrieved Context** (from knowledge base) - shown below
+2. **Conversation History** (previous messages) - shown in chat history
+
+DECISION LOGIC - Follow this carefully:
+
+STEP 1: Check if Retrieved Context is RELEVANT to what user is asking
+- Does it mention the topic they're asking about?
+- Is the information related to their question?
+
+STEP 2: Respond based on what you find:
+
+A) IF Retrieved Context IS RELEVANT to their question:
+   → Answer using the Retrieved Context
+   → You can also reference conversation history for continuity
+
+B) IF Retrieved Context is NOT RELEVANT but user is asking a FOLLOW-UP:
+   (e.g., "why?", "explain more", "what do you mean?", "elaborate")
+   → The user wants clarification on your PREVIOUS response
+   → Look at your last response in conversation history
+   → Elaborate, explain further, give examples, or rephrase
+   → You don't need the Retrieved Context for this - use what you already said
+
+C) IF Retrieved Context is NOT RELEVANT and it's a NEW topic:
+   → Politely say you don't have information on this specific topic.
+   → Suggest what topics you are trained on (if applicable).
+
+LANGUAGE INSTRUCTION (STRICT):
+- Always respond in English unless the user explicitly asks entirely in French.
+- If the query is ambiguous or short (e.g. names), ASSUME ENGLISH.
+- If the user asks in English, you MUST respond in English.
+
+CRITICAL: USE ONLY HTML TAGS - NO MARKDOWN
+- <h3>text</h3> for section headers
+- <p>text</p> for paragraphs
+- <ul><li>item</li></ul> for bullet lists
+- <ol><li>item</li></ol> for numbered lists
+- <strong>text</strong> for bold/emphasis
+
+Retrieved Context:
+{context}
+{memory_context}"""
+
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", system_prompt),
+            MessagesPlaceholder(variable_name="chat_history"),
+            ("human", "{question}"),
+        ])
+        chain = prompt | self.llm
+        recent_messages = messages[-4:] if len(messages) > 4 else messages
+
+        raw_response_parts: List[str] = []
+        async for chunk in chain.astream({
+            "context": state["rag_context"],
+            "memory_context": state.get("memory_context", "") if use_memory else "",
+            "chat_history": recent_messages,
+            "question": question,
+        }):
+            token = getattr(chunk, "content", "") or ""
+            if token:
+                raw_response_parts.append(token)
+                yield {"type": "token", "content": token}
+
+        answer = self._clean_response("".join(raw_response_parts))
+        docs = state.get("retrieved_docs", [])
+        sources = self._build_sources(docs)
+
+        if store_in_memory and self.memory and answer:
+            import threading
+            def store_bg():
+                try:
+                    self.memory.store_conversation(
+                        question, answer, sources,
+                        user_id=user_id, session_id=session_id
+                    )
+                except Exception as e:
+                    print(f"Warning: Memory storage failed: {e}")
+            threading.Thread(target=store_bg, daemon=True).start()
+
+        yield {
+            "type": "done",
+            "answer": answer,
+            "sources": sources,
+            "context_used": len(docs),
+            "quick_suggestions": [],
+            "memory_used": bool(state.get("memory_context")),
+            "user_id": user_id,
+            "session_id": session_id,
+            "contextualized_query": state.get("contextualized_query", question),
+        }
     
     def chat(
         self,
         question: str,
         chat_history: Optional[List] = None,
-        k: int = 5,
+        k: int = 3,
         use_memory: bool = True,
         store_in_memory: bool = True,
         user_id: Optional[str] = None,
@@ -496,6 +674,8 @@ Retrieved Context:
             "response": "",
             "user_id": user_id,
             "session_id": session_id,
+            "k": k,
+            "use_memory": use_memory,
         }
         
         # Run the graph
@@ -521,14 +701,7 @@ Retrieved Context:
         memory_used = bool(final_state.get("memory_context"))
         
         # Extract sources
-        sources = []
-        for doc in docs:
-            page_num = doc.metadata.get("page_number") or doc.metadata.get("page")
-            sources.append({
-                "source": doc.metadata.get("source", "Unknown"),
-                "page": str(page_num) if page_num else "N/A",
-                "content_preview": doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
-            })
+        sources = self._build_sources(docs)
         
         # Store in memory (background)
         if store_in_memory and self.memory and answer:

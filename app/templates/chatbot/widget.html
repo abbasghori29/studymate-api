@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CAFS Assistant</title>
+    <title>Growize Assistant</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -29,26 +29,26 @@
             /* Coral - lighter accent */
             --primary-soft: #fcb8a0;
             /* Darksalmon - soft accent */
-            --bg-dark: #0d0b12;
-            /* Very dark purple-black */
-            --bg-card: #1a1520;
-            /* Dark purple-gray */
-            --bg-input: #14111a;
+            --bg-dark: #ffffff;
+            /* Main chat background */
+            --bg-card: #ffffff;
+            /* Header and input area background */
+            --bg-input: #ffffff;
             /* Input background */
-            --text-primary: #f8fafc;
-            /* White text */
-            --text-secondary: #c4b8c8;
-            /* Muted purple-gray text */
-            --text-muted: #8a7a90;
-            /* Dimmer text */
-            --border: #2d2535;
-            /* Purple-tinted border */
+            --text-primary: #111111;
+            /* Primary text (black) */
+            --text-secondary: #2f2f2f;
+            /* Secondary text (dark gray) */
+            --text-muted: #666666;
+            /* Muted text */
+            --border: #d9d9d9;
+            /* Light border */
             --success: #10b981;
             /* Green for success states */
             --user-bubble: linear-gradient(135deg, #fc5304 0%, #fc7c54 100%);
             /* Orange gradient */
-            --bot-bubble: #1e1825;
-            /* Dark purple for bot messages */
+            --bot-bubble: #ffffff;
+            /* White bot bubble */
             --shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
             --accent-gold: #f9c847;
             /* Goldenrod accent */
@@ -117,7 +117,7 @@
 
         /* Header */
         .chat-header {
-            background: linear-gradient(135deg, var(--bg-card) 0%, #1e1825 100%);
+            background: var(--bg-card);
             padding: 18px 20px;
             display: flex;
             align-items: center;
@@ -187,7 +187,7 @@
             width: 36px;
             height: 36px;
             border: none;
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(0, 0, 0, 0.05);
             border-radius: 10px;
             cursor: pointer;
             display: flex;
@@ -198,7 +198,7 @@
         }
 
         .close-btn:hover {
-            background: rgba(255, 255, 255, 0.1);
+            background: rgba(0, 0, 0, 0.1);
             color: var(--text-primary);
         }
 
@@ -1544,7 +1544,7 @@
                 </svg>
             </div>
             <div class="header-info">
-                <div class="header-title">CAFS Assistant</div>
+                <div class="header-title">Growize Assistant</div>
                 <div class="header-status">
                     <span class="status-dot"></span>
                     Online
@@ -1865,42 +1865,103 @@
             }, 3000);
         }
 
+        function createStreamingBotMessage() {
+            const messagesContainer = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message bot';
+            messageDiv.innerHTML = `
+                <div class="avatar">${BOT_ICON}</div>
+                <div class="bubble">
+                    <div class="markdown-content"></div>
+                </div>
+            `;
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            return messageDiv.querySelector('.markdown-content');
+        }
+
+        function sanitizeStreamingPreview(text) {
+            // During token streaming, hide raw HTML tags from partial output.
+            return text
+                .replace(/<[^>]*>/g, '')
+                .replace(/\n{3,}/g, '\n\n')
+                .trimStart();
+        }
+
         async function processWithLLM(message) {
             const sendBtn = document.getElementById('sendBtn');
+            const streamUrl = `${API_URL}/stream`;
 
-            // Show typing indicator
             isTyping = true;
             sendBtn.disabled = true;
             addTypingIndicator();
 
             try {
-                const response = await fetch(API_URL, {
+                const response = await fetch(streamUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
+                        'Accept': 'text/event-stream',
                     },
                     body: JSON.stringify({
                         question: message,
                         user_id: USER_ID,
                         session_id: SESSION_ID,
-                        chat_history: chatHistory.slice(-6),
-                        k: 5,
+                        chat_history: chatHistory.slice(-4),
+                        k: 3,
                         use_memory: true,
                         store_in_memory: true
                     })
                 });
 
-                removeTypingIndicator();
-
-                if (!response.ok) {
-                    throw new Error('Failed to get response');
+                if (!response.ok || !response.body) {
+                    throw new Error('Failed to start streaming response');
                 }
 
-                const data = await response.json();
+                let streamContent = null;
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder('utf-8');
+                let buffer = '';
+                let streamedText = '';
+                let finalAnswer = '';
 
-                // Add bot response with inline suggestions
-                addMessage(data.answer, false, data.sources || [], data.quick_suggestions || []);
-                chatHistory.push({ role: 'ai', content: data.answer });
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const events = buffer.split('\n\n');
+                    buffer = events.pop() || '';
+
+                    for (const rawEvent of events) {
+                        const dataLine = rawEvent.split('\n').find(line => line.startsWith('data: '));
+                        if (!dataLine) continue;
+
+                        const payload = JSON.parse(dataLine.slice(6));
+                        if (payload.type === 'token' && payload.content) {
+                            if (!streamContent) {
+                                removeTypingIndicator();
+                                streamContent = createStreamingBotMessage();
+                            }
+                            streamedText += payload.content;
+                            streamContent.textContent = sanitizeStreamingPreview(streamedText);
+                            document.getElementById('chatMessages').scrollTop =
+                                document.getElementById('chatMessages').scrollHeight;
+                        } else if (payload.type === 'done') {
+                            finalAnswer = payload.answer || streamedText;
+                        } else if (payload.type === 'error') {
+                            throw new Error(payload.message || 'Streaming error');
+                        }
+                    }
+                }
+
+                finalAnswer = finalAnswer || streamedText;
+                if (!streamContent) {
+                    removeTypingIndicator();
+                    streamContent = createStreamingBotMessage();
+                }
+                streamContent.innerHTML = renderHTML(finalAnswer);
+                chatHistory.push({ role: 'ai', content: finalAnswer });
 
             } catch (error) {
                 removeTypingIndicator();
@@ -1933,10 +1994,10 @@
 
         // Get or create user ID from localStorage (persists across sessions)
         function getUserId() {
-            let userId = localStorage.getItem('cafs_chatbot_user_id');
+            let userId = localStorage.getItem('growize_chatbot_user_id');
             if (!userId) {
                 userId = generateUserId();
-                localStorage.setItem('cafs_chatbot_user_id', userId);
+                localStorage.setItem('growize_chatbot_user_id', userId);
                 console.log('Created new user ID:', userId);
             }
             return userId;
@@ -1944,10 +2005,10 @@
 
         // Get or create session ID from sessionStorage (new per tab/window)
         function getSessionId() {
-            let sessionId = sessionStorage.getItem('cafs_chatbot_session_id');
+            let sessionId = sessionStorage.getItem('growize_chatbot_session_id');
             if (!sessionId) {
                 sessionId = generateSessionId();
-                sessionStorage.setItem('cafs_chatbot_session_id', sessionId);
+                sessionStorage.setItem('growize_chatbot_session_id', sessionId);
                 console.log('Created new session ID:', sessionId);
             }
             return sessionId;

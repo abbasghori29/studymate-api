@@ -82,7 +82,7 @@ OPENAI_API_KEY=your-openai-api-key-here
 VECTOR_STORE_PATH=faiss_index_openai
 
 PINECONE_API_KEY=your-pinecone-api-key-here
-PINECONE_INDEX_NAME=cafs-chatbot-memory
+PINECONE_INDEX_NAME=growize-chatbot-memory
 PINECONE_CLOUD=aws
 PINECONE_REGION=us-east-1
 EOF

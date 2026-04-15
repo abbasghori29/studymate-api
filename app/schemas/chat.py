@@ -27,7 +27,7 @@ class ChatRequest(BaseModel):
         description="Previous chat messages for context"
     )
     k: int = Field(
-        default=5,
+        default=3,
         ge=1,
         le=20,
         description="Number of documents to retrieve (1-20)"
